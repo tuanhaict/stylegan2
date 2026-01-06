@@ -20,7 +20,7 @@ from torch_utils import misc
 from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import grid_sample_gradfix
-from training.lora import LoRAConv2d, inject_lora
+from training.lora import inject_lora
 import legacy
 from metrics import metric_main
 
