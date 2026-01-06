@@ -236,13 +236,16 @@ def training_loop(
     lora_params = get_lora_params(G)
     assert len(lora_params) > 0, "No LoRA params found!"
 
-    G_opt_kwargs = dnnlib.EasyDict(G_opt_kwargs)
-    if 'betas' in G_opt_kwargs:
-        G_opt_kwargs.betas = tuple(G_opt_kwargs.betas)
+    # Fix betas để đảm bảo nó là tuple
+    G_opt_kwargs_copy = dict(G_opt_kwargs)
+    if 'betas' in G_opt_kwargs_copy:
+        betas = G_opt_kwargs_copy['betas']
+        if isinstance(betas, (list, tuple)):
+            G_opt_kwargs_copy['betas'] = tuple(float(b) for b in betas)
 
     G_opt = dnnlib.util.construct_class_by_name(
         params=lora_params,
-        **G_opt_kwargs
+        **G_opt_kwargs_copy
     )
 
     phases = [
