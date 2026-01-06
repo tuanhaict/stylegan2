@@ -168,14 +168,6 @@ def training_loop(
 
     inject_lora(G, rank=8, alpha=1.0)
     inject_lora(G_ema, rank=8, alpha=1.0)
-
-
-    # Kiểm tra
-    lora_params = []
-    for m in G.modules():
-        if isinstance(m, LoRAConv2d):
-            lora_params.extend([m.A, m.B])
-    print(f"Total LoRA parameters: {len(lora_params)}")
     # Resume from existing pickle.
     if (resume_pkl is not None) and (rank == 0):
         print(f'Resuming from "{resume_pkl}"')
