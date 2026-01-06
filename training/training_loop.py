@@ -236,6 +236,10 @@ def training_loop(
     lora_params = get_lora_params(G)
     assert len(lora_params) > 0, "No LoRA params found!"
 
+    G_opt_kwargs = dnnlib.EasyDict(G_opt_kwargs)
+    if 'betas' in G_opt_kwargs:
+        G_opt_kwargs.betas = tuple(G_opt_kwargs.betas)
+
     G_opt = dnnlib.util.construct_class_by_name(
         params=lora_params,
         **G_opt_kwargs
@@ -249,6 +253,7 @@ def training_loop(
             interval=1
         )
     ]
+
 
     for phase in phases:
         phase.start_event = None
