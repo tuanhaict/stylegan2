@@ -13,6 +13,7 @@ class LoRAConv2d(nn.Module):
         self.A = nn.Parameter(torch.randn(rank, in_c * k * k) * 0.01)
         self.B = nn.Parameter(torch.zeros(out_c, rank))
 
+        # Freeze base conv
         for p in conv.parameters():
             p.requires_grad = False
 
@@ -20,8 +21,7 @@ class LoRAConv2d(nn.Module):
         W = self.conv.weight
         delta = (self.B @ self.A).view(W.shape)
         return F.conv2d(
-            x,
-            W + self.scale * delta,
+            x, W + self.scale * delta,
             bias=self.conv.bias,
             stride=self.conv.stride,
             padding=self.conv.padding

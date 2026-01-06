@@ -8,7 +8,4 @@ def inject_lora(G, rank=8, alpha=1.0):
             *path, last = name.split(".")
             for p in path:
                 parent = getattr(parent, p)
-            lora_layer = LoRAConv2d(module, rank, alpha)
-            lora_layer.A.requires_grad = True
-            lora_layer.B.requires_grad = True
-            setattr(parent, last, lora_layer)
+            setattr(parent, last, LoRAConv2d(module, rank, alpha))
