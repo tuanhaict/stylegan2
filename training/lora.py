@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch_utils.ops import bias_act
 from training.networks import modulated_conv2d
 import types
 class LoRAWeight(torch.nn.Module):
@@ -17,22 +18,29 @@ class LoRAWeight(torch.nn.Module):
         delta = (self.B @ self.A).view(W.shape)
         return W + self.scale * delta
 
-def patch_synthesis_layer(layer: torch.nn.Module):
-    assert hasattr(layer, "weight")
-
+def patch_synthesis_layer(layer):
     old_forward = layer.forward
 
-    def forward_lora(self, x, w, noise_mode='random', fused_modconv=True, **kwargs):
-        # ---- copy logic từ SynthesisLayer.forward ----
+    def forward_lora(self, x, w, noise_mode='random', fused_modconv=True, gain=1):
+        assert noise_mode in ['random', 'const', 'none']
+
         styles = self.affine(w)
 
         noise = None
-        if self.use_noise and noise_mode != 'none':
-            noise = torch.randn([x.shape[0], 1, self.resolution, self.resolution], device=x.device)
+        if self.use_noise and noise_mode == 'random':
+            noise = torch.randn(
+                [x.shape[0], 1, self.resolution, self.resolution],
+                device=x.device
+            ) * self.noise_strength
+        if self.use_noise and noise_mode == 'const':
+            noise = self.noise_const * self.noise_strength
 
+        # ---- LoRA here ----
         W = self.weight
         if hasattr(self, "lora"):
             W = self.lora.apply(W)
+
+        flip_weight = (self.up == 1)
 
         x = modulated_conv2d(
             x=x,
@@ -40,28 +48,31 @@ def patch_synthesis_layer(layer: torch.nn.Module):
             styles=styles,
             noise=noise,
             up=self.up,
-            down=self.down,
             padding=self.padding,
             resample_filter=self.resample_filter,
-            flip_weight=self.flip_weight,
+            flip_weight=flip_weight,
             fused_modconv=fused_modconv
         )
 
-        x = self.bias_act(x)
+        act_gain = self.act_gain * gain
+        act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
+
+        x = bias_act.bias_act(
+            x,
+            self.bias.to(x.dtype),
+            act=self.activation,
+            gain=act_gain,
+            clamp=act_clamp
+        )
         return x
 
+    import types
     layer.forward = types.MethodType(forward_lora, layer)
-def inject_lora(G, rank=8, alpha=1.0):
-    count = 0
 
+def inject_lora(G, rank=8, alpha=1.0):
     for m in G.modules():
         if m.__class__.__name__ == "SynthesisLayer":
-            # gắn LoRA
             m.lora = LoRAWeight(m.weight, rank, alpha).to(m.weight.device)
             m.weight.requires_grad_(False)
-
-            # patch forward
             patch_synthesis_layer(m)
-            count += 1
 
-    print(f"[LoRA] Injected & patched {count} SynthesisLayers")
