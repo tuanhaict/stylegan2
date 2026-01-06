@@ -166,8 +166,7 @@ def training_loop(
     G.requires_grad_(False)
     D.requires_grad_(False)
 
-    inject_lora(G, rank=8, alpha=1.0)
-    inject_lora(G_ema, rank=8, alpha=1.0)
+    
     # Resume from existing pickle.
     if (resume_pkl is not None) and (rank == 0):
         print(f'Resuming from "{resume_pkl}"')
@@ -175,7 +174,11 @@ def training_loop(
             resume_data = legacy.load_network_pkl(f)
         for name, module in [('G', G), ('D', D), ('G_ema', G_ema)]:
             misc.copy_params_and_buffers(resume_data[name], module, require_all=False)
-
+    inject_lora(G, rank=8, alpha=1.0)   
+    inject_lora(G_ema, rank=8, alpha=1.0)
+    for n, p in G.named_parameters():
+        if p.requires_grad:
+            print(n)
     # Print network summary tables.
     if rank == 0:
         z = torch.empty([batch_gpu, G.z_dim], device=device)
