@@ -20,6 +20,7 @@ from torch_utils import misc
 from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import grid_sample_gradfix
+from training.lora import LoRAConv2d
 from training.lora_utils import inject_lora
 import legacy
 from metrics import metric_main
@@ -152,6 +153,11 @@ def training_loop(
     G_ema = copy.deepcopy(G).eval()
     inject_lora(G, rank=8, alpha=1.0)
     inject_lora(G_ema, rank=8, alpha=1.0)
+    G.requires_grad_(False)
+    for name, module in G.named_modules():
+        if isinstance(module, LoRAConv2d):
+            module.A.requires_grad = True
+            module.B.requires_grad = True
     # Resume from existing pickle.
     if (resume_pkl is not None) and (rank == 0):
         print(f'Resuming from "{resume_pkl}"')
