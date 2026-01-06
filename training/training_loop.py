@@ -20,8 +20,7 @@ from torch_utils import misc
 from torch_utils import training_stats
 from torch_utils.ops import conv2d_gradfix
 from torch_utils.ops import grid_sample_gradfix
-from training.lora import LoRAConv2d
-from training.lora_utils import inject_lora
+from training.lora import LoRAConv2d, inject_lora
 import legacy
 from metrics import metric_main
 
@@ -85,6 +84,12 @@ def save_image_grid(img, fname, drange, grid_size):
         PIL.Image.fromarray(img, 'RGB').save(fname)
 
 #----------------------------------------------------------------------------
+def get_lora_params(G):
+    params = []
+    for m in G.modules():
+        if hasattr(m, "lora"):
+            params += list(m.lora.parameters())
+    return params
 
 def training_loop(
     run_dir                 = '.',      # Output directory.
@@ -148,13 +153,22 @@ def training_loop(
     if rank == 0:
         print('Constructing networks...')
     common_kwargs = dict(c_dim=training_set.label_dim, img_resolution=training_set.resolution, img_channels=training_set.num_channels)
-    G = dnnlib.util.construct_class_by_name(**G_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
-    D = dnnlib.util.construct_class_by_name(**D_kwargs, **common_kwargs).train().requires_grad_(False).to(device) # subclass of torch.nn.Module
+    G = dnnlib.util.construct_class_by_name(
+        **G_kwargs, **common_kwargs
+    ).train().to(device)
+
+    D = dnnlib.util.construct_class_by_name(
+        **D_kwargs, **common_kwargs
+    ).eval().to(device)
+
     G_ema = copy.deepcopy(G).eval()
+
+    G.requires_grad_(False)
+    D.requires_grad_(False)
+
     inject_lora(G, rank=8, alpha=1.0)
     inject_lora(G_ema, rank=8, alpha=1.0)
-    D.requires_grad_(False)
-    print("Discriminator frozen")
+
 
     # Kiểm tra
     lora_params = []
@@ -205,32 +219,36 @@ def training_loop(
         print('Setting up training phases...')
     loss = dnnlib.util.construct_class_by_name(device=device, **ddp_modules, **loss_kwargs) # subclass of training.loss.Loss
     phases = []
-    for name, module, opt_kwargs, reg_interval in [('G', G, G_opt_kwargs, G_reg_interval), ('D', D, D_opt_kwargs, D_reg_interval)]:
-        if name == 'G':
-            params = []
-            for m in module.modules():
-                if isinstance(m, LoRAConv2d):
-                    params.extend([m.A, m.B])
-            
-            if len(params) == 0:
-                raise ValueError("No LoRA parameters found for Generator!")
-            print(f"Generator LoRA trainable params: {len(params)}")
-        else:
-            # Discriminator: KHÔNG train, skip luôn
-            print(f"Discriminator is frozen, skipping optimizer creation")
-            continue  # Bỏ qua Discriminator, không tạo optimizer cho nó
+    # for name, module, opt_kwargs, reg_interval in [('G', G, G_opt_kwargs, G_reg_interval), ('D', D, D_opt_kwargs, D_reg_interval)]:
         
-        if reg_interval is None:
-            opt = dnnlib.util.construct_class_by_name(params, **opt_kwargs)
-            phases += [dnnlib.EasyDict(name=name+'both', module=module, opt=opt, interval=1)]
-        else: # Lazy regularization.
-            mb_ratio = reg_interval / (reg_interval + 1)
-            opt_kwargs = dnnlib.EasyDict(opt_kwargs)
-            opt_kwargs.lr = opt_kwargs.lr * mb_ratio
-            opt_kwargs.betas = [beta ** mb_ratio for beta in opt_kwargs.betas]
-            opt = dnnlib.util.construct_class_by_name(params, **opt_kwargs)
-            phases += [dnnlib.EasyDict(name=name+'main', module=module, opt=opt, interval=1)]
-            phases += [dnnlib.EasyDict(name=name+'reg', module=module, opt=opt, interval=reg_interval)]
+    #     if reg_interval is None:
+    #         opt = dnnlib.util.construct_class_by_name(params, **opt_kwargs)
+    #         phases += [dnnlib.EasyDict(name=name+'both', module=module, opt=opt, interval=1)]
+    #     else: # Lazy regularization.
+    #         mb_ratio = reg_interval / (reg_interval + 1)
+    #         opt_kwargs = dnnlib.EasyDict(opt_kwargs)
+    #         opt_kwargs.lr = opt_kwargs.lr * mb_ratio
+    #         opt_kwargs.betas = [beta ** mb_ratio for beta in opt_kwargs.betas]
+    #         opt = dnnlib.util.construct_class_by_name(params, **opt_kwargs)
+    #         phases += [dnnlib.EasyDict(name=name+'main', module=module, opt=opt, interval=1)]
+    #         phases += [dnnlib.EasyDict(name=name+'reg', module=module, opt=opt, interval=reg_interval)]
+    lora_params = get_lora_params(G)
+    assert len(lora_params) > 0, "No LoRA params found!"
+
+    G_opt = dnnlib.util.construct_class_by_name(
+        params=lora_params,
+        **G_opt_kwargs
+    )
+
+    phases = [
+        dnnlib.EasyDict(
+            name='G_lora',
+            module=G,
+            opt=G_opt,
+            interval=1
+        )
+    ]
+
     for phase in phases:
         phase.start_event = None
         phase.end_event = None
