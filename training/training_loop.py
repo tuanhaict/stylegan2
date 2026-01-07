@@ -413,7 +413,8 @@ def training_loop(
                 if module is not None:
                     if num_gpus > 1:
                         misc.check_ddp_consistency(module, ignore_regex=r'.*\.w_avg')
-                    module = copy.deepcopy(module).eval().requires_grad_(False).cpu()
+                    # module = copy.deepcopy(module).eval().requires_grad_(False).cpu()
+                    module = module.eval().requires_grad_(False).cpu()
                 snapshot_data[name] = module
                 del module # conserve memory
             snapshot_pkl = os.path.join(run_dir, f'network-snapshot-{cur_nimg//1000:06d}.pkl')
