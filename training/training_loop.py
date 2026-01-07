@@ -250,7 +250,7 @@ def training_loop(
 
     phases = [
         dnnlib.EasyDict(
-            name='G_lora',
+            name='Gmain',
             module=G,
             opt=G_opt,
             interval=1
