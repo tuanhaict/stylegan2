@@ -19,13 +19,15 @@ class LoRAWeight(torch.nn.Module):
         return W + self.scale * delta
 
 def patch_synthesis_layer(layer):
-    old_forward = layer.forward
-
+    # Lưu forward gốc
+    if not hasattr(layer, '_original_forward'):
+        layer._original_forward = layer.forward
+    
     def forward_lora(self, x, w, noise_mode='random', fused_modconv=True, gain=1):
         assert noise_mode in ['random', 'const', 'none']
-
+        
         styles = self.affine(w)
-
+        
         noise = None
         if self.use_noise and noise_mode == 'random':
             noise = torch.randn(
@@ -34,14 +36,13 @@ def patch_synthesis_layer(layer):
             ) * self.noise_strength
         if self.use_noise and noise_mode == 'const':
             noise = self.noise_const * self.noise_strength
-
-        # ---- LoRA here ----
+        
         W = self.weight
         if hasattr(self, "lora"):
             W = self.lora.apply(W)
-
+        
         flip_weight = (self.up == 1)
-
+        
         x = modulated_conv2d(
             x=x,
             weight=W,
@@ -53,10 +54,10 @@ def patch_synthesis_layer(layer):
             flip_weight=flip_weight,
             fused_modconv=fused_modconv
         )
-
+        
         act_gain = self.act_gain * gain
         act_clamp = self.conv_clamp * gain if self.conv_clamp is not None else None
-
+        
         x = bias_act.bias_act(
             x,
             self.bias.to(x.dtype),
@@ -65,9 +66,9 @@ def patch_synthesis_layer(layer):
             clamp=act_clamp
         )
         return x
-
-    import types
-    layer.forward = types.MethodType(forward_lora, layer)
+    
+    # Đừng dùng types.MethodType, gán trực tiếp
+    layer.forward = forward_lora.__get__(layer, layer.__class__)
 
 def inject_lora(G, rank=8, alpha=1.0):
     for m in G.modules():
