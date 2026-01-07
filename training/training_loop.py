@@ -414,6 +414,9 @@ def training_loop(
                     if num_gpus > 1:
                         misc.check_ddp_consistency(module, ignore_regex=r'.*\.w_avg')
                     # module = copy.deepcopy(module).eval().requires_grad_(False).cpu()
+                    for m in module.modules():
+                        if hasattr(m, '_original_forward'):
+                            m.forward = m._original_forward
                     module = module.eval().requires_grad_(False).cpu()
                 snapshot_data[name] = module
                 del module # conserve memory
