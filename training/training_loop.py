@@ -352,11 +352,11 @@ def training_loop(
             if ema_rampup is not None:
                 ema_nimg = min(ema_nimg, cur_nimg * ema_rampup)
             ema_beta = 0.5 ** (batch_size / max(ema_nimg, 1e-8))
-            for p_ema, p in zip(G_ema.parameters(), G.parameters()):
-                p_ema.copy_(p.lerp(p_ema, ema_beta))
-            for b_ema, b in zip(G_ema.buffers(), G.buffers()):
-                b_ema.copy_(b)
-
+            with torch.no_grad():
+                for p_ema, p in zip(G_ema.parameters(), G.parameters()):
+                    p_ema.copy_(p.lerp(p_ema, ema_beta))
+                for b_ema, b in zip(G_ema.buffers(), G.buffers()):
+                    b_ema.copy_(b)
         # Update state.
         cur_nimg += batch_size
         batch_idx += 1
